@@ -77,7 +77,7 @@ void setup(){
   if (!myDFPlayer.begin(mySerial)) {
     Serial.println(F("Aviso: DFPlayer nao inicializado. Audio sera ignorado."));
   } else {
-    myDFPlayer.volume(20);
+    myDFPlayer.volume(30);
   }
 
   // seed random
