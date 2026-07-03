@@ -85,10 +85,10 @@ void setup(){
 }
 
 void loop(){
-  static int lastState = HIGH;
+  static int lastState = LOW;
   int state = digitalRead(SWITCH_PIN);
-  // detect press (HIGH -> LOW)
-  if (lastState == HIGH && state == LOW) {
+  // detect press (LOW -> HIGH)
+  if (lastState == LOW && state == HIGH) {
     // choose random version 1..16 (new hesitant-hand version added)
     int v = random(1,17);
     // pick a random RGB color each activation
@@ -98,7 +98,7 @@ void loop(){
     setRGBColor(rr, gg, bb);
     runVersion(v);
     // wait until switch released to avoid retrigger
-    while (digitalRead(SWITCH_PIN) == LOW) delay(10);
+    while (digitalRead(SWITCH_PIN) == HIGH) delay(10);
   }
   lastState = state;
 }
