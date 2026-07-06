@@ -22,10 +22,10 @@ Servo bottomDoor;
 const int SERVO_TOP_DOOR = A3;
 Servo topDoor;
 int skeletonBodyReset = 30,
-    skeletonHandReset = 34,
+    skeletonHandReset = 24,
     bottomDoorReset = 180,
-    topDoorReset = 6;
-int skeletonBodyAngled = 150,
+    topDoorReset = 8;
+int skeletonBodyAngled = 100,
     skeletonHandAngled = 130,
     bottomDoorAngled = 130,
     topDoorAngled = 70;
