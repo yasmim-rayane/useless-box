@@ -30,6 +30,14 @@ int skeletonBodyAngled = 100,
     bottomDoorAngled = 130,
     topDoorAngled = 70;
 
+/* -------------------------------------------------------
+   TIMING CONSTANTS — tweak these to adjust the feel
+   without breaking the door-before-servo invariant.
+   ------------------------------------------------------- */
+const int DOOR_OPEN_SETTLE_MS  = 400;  // wait after door opens before moving servo
+const int SERVO_DOWN_SETTLE_MS = 500;  // wait after servo resets before closing door
+const int DOOR_CLOSE_SETTLE_MS = 300;  // wait after door closes before next action
+
 /* Switch */
 const int SWITCH_PIN = 8;
 
@@ -103,37 +111,79 @@ void loop(){
   lastState = state;
 }
 
+/* =========================================================
+   SAFE BUILDING-BLOCK FUNCTIONS
+   These enforce: open door → wait → move → wait → reset → wait → close door
+   ========================================================= */
+
+// Raise skeleton body SAFELY (opens top door first, waits, then raises)
+// Eyes always turn on when the skeleton rises.
+void raiseBody() {
+  eyesOn();
+  topDoor.write(topDoorAngled);
+  delay(DOOR_OPEN_SETTLE_MS);
+  skeletonBody.write(skeletonBodyAngled);
+}
+
+// Raise body to an arbitrary angle (door opens first)
+// Eyes always turn on when the skeleton rises.
+void raiseBodyTo(int angle) {
+  eyesOn();
+  topDoor.write(topDoorAngled);
+  delay(DOOR_OPEN_SETTLE_MS);
+  skeletonBody.write(angle);
+}
+
+// Lower skeleton body SAFELY (resets body, waits, then closes top door)
+// Eyes turn off when the skeleton goes back down.
+void lowerBody() {
+  skeletonBody.write(skeletonBodyReset);
+  delay(SERVO_DOWN_SETTLE_MS);
+  eyesOff();
+  topDoor.write(topDoorReset);
+  delay(DOOR_CLOSE_SETTLE_MS);
+}
+
+// Extend skeleton hand SAFELY (opens bottom door first, waits, then extends)
+void extendHand() {
+  bottomDoor.write(bottomDoorAngled);
+  delay(DOOR_OPEN_SETTLE_MS);
+  skeletonHand.write(skeletonHandAngled);
+}
+
+// Retract skeleton hand SAFELY (resets hand, waits, then closes bottom door)
+void retractHand() {
+  skeletonHand.write(skeletonHandReset);
+  delay(SERVO_DOWN_SETTLE_MS);
+  bottomDoor.write(bottomDoorReset);
+  delay(DOOR_CLOSE_SETTLE_MS);
+}
+
+/* =========================================================
+   COMPOSITE HELPERS
+   ========================================================= */
+
+// Wake skeleton: effects → open top door → raise body
 void wakeSkeleton() {
     fadeRGB();
     eyesOn();
     delay(200);
-    topDoor.write(topDoorAngled);
-    delay(750);
-  skeletonBody.write(skeletonBodyAngled);
-  // keep skeleton raised for 500 ms
-  delay(500);
+    raiseBody();          // top door opens, then body raises
+    delay(500);           // keep skeleton raised for 500 ms
 }
 
+// Rest skeleton: lower body safely → turn off effects
 void restSkeleton() {
-    skeletonBody.write(skeletonBodyReset);
-    delay(750);
-    topDoor.write(topDoorReset);
-    delay(200);
+    lowerBody();          // body resets, waits, top door closes
     eyesOff();
     RGBoff();
-    turnSwitchOff();
 }
 
+// Turn switch off: extend hand through bottom door to flip switch, then retract
 void turnSwitchOff(){
-    bottomDoor.write(bottomDoorAngled);
-        delay(750);
-        skeletonHand.write(skeletonHandAngled);
-        delay(500);
-        skeletonHand.write(skeletonHandReset);
-        delay(750);
-        bottomDoor.write(bottomDoorReset);
-  // ensure top door (the body lid) is closed after the hand finishes
-  topDoor.write(topDoorReset);
+    extendHand();         // bottom door opens, then hand extends
+    delay(500);           // hold hand on switch
+    retractHand();        // hand resets, waits, bottom door closes
 }
 
 // --- helper to play a track safely ---
@@ -145,12 +195,20 @@ void playTrackSafe(int track) {
   myDFPlayer.play(track);
 }
 
-// --- 15 version implementations ---
-void version1() { // wake + sound 1 + rest
+/* =========================================================
+   16 VERSION IMPLEMENTATIONS
+   Every version now guarantees:
+     - Body servo ONLY moves while top door is open
+     - Hand servo ONLY moves while bottom door is open
+     - Servos reset with adequate delay BEFORE doors close
+   ========================================================= */
+
+void version1() { // wake + sound 1 + rest + switch off
   playTrackSafe(1);
   wakeSkeleton();
   delay(200);
   restSkeleton();
+  turnSwitchOff();
 }
 
 void version2() { // quick hand + sound 2
@@ -160,20 +218,21 @@ void version2() { // quick hand + sound 2
     angryRGB(300);
     blinkEyes(2, 80, 80);
   }
-  skeletonHand.write(skeletonHandAngled);
-  delay(600);
-  skeletonHand.write(skeletonHandReset);
+  // hand moves SAFELY inside bottom door open/close
+  extendHand();
+  delay(300);
+  retractHand();
+  // now flip the switch
   turnSwitchOff();
 }
 
 void version3() { // top door dramatic + sound 3
   playTrackSafe(3);
-  topDoor.write(topDoorAngled);
-  delay(800);
-  skeletonBody.write(skeletonBodyAngled);
+  // body moves SAFELY inside top door open/close
+  raiseBody();
   delay(600);
-  skeletonBody.write(skeletonBodyReset);
-  topDoor.write(topDoorReset);
+  lowerBody();            // body resets, waits, THEN top door closes
+  // flip the switch
   turnSwitchOff();
 }
 
@@ -195,35 +254,44 @@ void version5() { // rgb party + sound 5
     fadeRGB();
     delay(150);
   }
+  RGBoff();
   turnSwitchOff();
 }
 
 void version6() { // hand wave + body nod + sound 6
   playTrackSafe(6);
-  skeletonHand.write(skeletonHandAngled);
+  // hand moves SAFELY inside bottom door open/close
+  extendHand();
   delay(400);
-  skeletonHand.write(skeletonHandReset);
-  skeletonBody.write(skeletonBodyAngled);
+  retractHand();
+  // body moves SAFELY inside top door open/close
+  raiseBody();
   delay(500);
-  skeletonBody.write(skeletonBodyReset);
+  lowerBody();
+  // flip the switch
   turnSwitchOff();
 }
 
-void version7() { // two sounds sequence + open top
+void version7() { // two sounds sequence + open top door with body peek
   playTrackSafe(7);
   delay(600);
   playTrackSafe(8);
-  topDoor.write(topDoorAngled);
+  // body peeks out through top door SAFELY
+  raiseBody();
   delay(700);
-  topDoor.write(topDoorReset);
+  lowerBody();
+  // flip the switch
   turnSwitchOff();
 }
 
-void version8() { // reverse: close bottom then hand
+void version8() { // tease bottom door + switch off
   playTrackSafe(9);
+  // tease: open and close bottom door (no servo moves inside, so safe)
   bottomDoor.write(bottomDoorAngled);
   delay(500);
   bottomDoor.write(bottomDoorReset);
+  delay(DOOR_CLOSE_SETTLE_MS);
+  // flip the switch
   turnSwitchOff();
 }
 
@@ -235,25 +303,36 @@ void version9() { // long wake with eyes + rgb + sound 10
   fadeRGB();
   delay(1200);
   eyesOff();
-  restSkeleton();
+  RGBoff();
+  // body was never raised, so no need to lower; just flip the switch
+  turnSwitchOff();
 }
 
 void version10() { // playful: hand multiple taps + sound 11
   playTrackSafe(11);
+  // open bottom door ONCE, do all taps, then close it
+  bottomDoor.write(bottomDoorAngled);
+  delay(DOOR_OPEN_SETTLE_MS);
   for (int i=0;i<3;i++){
     skeletonHand.write(skeletonHandAngled);
     delay(250);
     skeletonHand.write(skeletonHandReset);
     delay(150);
   }
+  delay(SERVO_DOWN_SETTLE_MS);       // ensure hand is fully down
+  bottomDoor.write(bottomDoorReset);
+  delay(DOOR_CLOSE_SETTLE_MS);
+  // flip the switch
   turnSwitchOff();
 }
 
 void version11() { // dramatic body swing + sound 12
   playTrackSafe(12);
-  skeletonBody.write(skeletonBodyAngled);
+  // body moves SAFELY inside top door open/close
+  raiseBody();
   delay(700);
-  skeletonBody.write(skeletonBodyReset);
+  lowerBody();
+  // flip the switch
   turnSwitchOff();
 }
 
@@ -272,10 +351,12 @@ void version13() { // eyes on long + subtle hand
   if (random(0,4) == 0) angryRGB(350);
   eyesOn();
   delay(900);
-  skeletonHand.write(skeletonHandAngled);
+  // hand moves SAFELY inside bottom door open/close
+  extendHand();
   delay(400);
-  skeletonHand.write(skeletonHandReset);
+  retractHand();
   eyesOff();
+  // flip the switch
   turnSwitchOff();
 }
 
@@ -293,6 +374,7 @@ void version14() { // rgb fast strobe + sound random
     }
     delay(80);
   }
+  eyesOff();
   RGBoff();
   turnSwitchOff();
 }
@@ -300,13 +382,15 @@ void version14() { // rgb fast strobe + sound random
 void version15() { // full sequence: wake, hand, sounds, rest
   int t = random(1,12);
   playTrackSafe(t);
-  wakeSkeleton();
+  wakeSkeleton();                     // top door opens → body raises
   delay(300);
-  skeletonHand.write(skeletonHandAngled);
+  // hand needs its own door — open bottom door while top is still open
+  extendHand();
   delay(400);
-  skeletonHand.write(skeletonHandReset);
+  retractHand();                      // hand resets → bottom door closes
   delay(200);
-  restSkeleton();
+  restSkeleton();                     // body resets → top door closes
+  turnSwitchOff();
 }
 
 // version16: hesitating hand sequence
@@ -314,33 +398,42 @@ void version16() {
   // audio cue
   playTrackSafe(random(1,12));
 
-  // open top door slightly
+  // --- First hesitation: body peeks out, retreats ---
+  // open top door, eyes on
+  eyesOn();
   topDoor.write(topDoorAngled);
-  delay(400);
+  delay(DOOR_OPEN_SETTLE_MS);
 
-  // body goes halfway, hesitates, then returns
+  // body goes halfway, hesitates
   int bodyMid = (skeletonBodyReset + skeletonBodyAngled) / 2;
   skeletonBody.write(bodyMid);
   delay(500);
-  // back off a bit
-  skeletonBody.write(skeletonBodyReset);
-  delay(400);
 
-  // lower the top door briefly
+  // back off — body resets, WAIT, then close top door
+  skeletonBody.write(skeletonBodyReset);
+  delay(SERVO_DOWN_SETTLE_MS);
+  eyesOff();
   topDoor.write(topDoorReset);
+  delay(DOOR_CLOSE_SETTLE_MS);
+
+  // brief pause before second attempt
   delay(300);
 
-  // raise top door again and final approach
+  // --- Second attempt: open top door again, peek ---
+  eyesOn();
   topDoor.write(topDoorAngled);
-  delay(600);
+  delay(DOOR_OPEN_SETTLE_MS);
+  skeletonBody.write(bodyMid);
+  delay(400);
 
-  // final attempt to turn switch off
-  skeletonHand.write(skeletonHandAngled);
-  delay(450);
-  skeletonHand.write(skeletonHandReset);
-  delay(200);
+  // body resets, WAIT, then close top door
+  skeletonBody.write(skeletonBodyReset);
+  delay(SERVO_DOWN_SETTLE_MS);
+  eyesOff();
+  topDoor.write(topDoorReset);
+  delay(DOOR_CLOSE_SETTLE_MS);
 
-  // complete the turn-off sequence (bottom door + hand) to ensure switch is off
+  // --- Final attempt: hand comes out of bottom door to flip switch ---
   turnSwitchOff();
 }
 
